@@ -92,10 +92,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
   static const int _historyMax = 100;
 
   // Simple animation controller for reveal/hide of scientific area
-  late final AnimationController _revealController = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 250),
-  );
+  late AnimationController _revealController;
 
   // Allowed key inputs for keyboard support (web/desktop)
   static const Set<String> _allowedKeys = {
@@ -124,6 +121,10 @@ class _CalculatorScreenState extends State<CalculatorScreen>
     super.initState();
     // Listen for keyboard inputs for better web/desktop UX
     // HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+    _revealController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    );
     _loadHistory();
   }
 
@@ -280,12 +281,12 @@ class _CalculatorScreenState extends State<CalculatorScreen>
   /// Formats a double into a concise string while preserving precision.
   String _formatNumber(double value) {
     if (value.isNaN || value.isInfinite) return value.toString();
-    // Use up to 12 significant digits, then trim trailing zeros
-    String s = value.toStringAsPrecision(12);
-    if (s.contains('e')) return s; // scientific notation as-is
+    // Format with fixed precision then trim trailing zeros and decimal point.
+    String s = value.toStringAsFixed(12);
+    if (s.contains('e') || s.contains('E')) return value.toString();
     if (s.contains('.')) {
-      s = s.replaceFirst(RegExp(r"\.0+"), '');
-      s = s.replaceFirst(RegExp(r"(\.\d*?[1-9])0+"), r"$1");
+      s = s.replaceFirstMapped(RegExp(r'(\.\d*?[1-9])0+$'), (m) => m.group(1)!);
+      s = s.replaceFirst(RegExp(r'\.0+$'), '');
       if (s.endsWith('.')) s = s.substring(0, s.length - 1);
     }
     return s;
@@ -681,6 +682,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
                     alignment: Alignment.centerRight,
                     child: Text(
                       _result,
+                      key: const Key('result-text'),
                       style: theme.textTheme.displaySmall?.copyWith(
                         fontSize: 42,
                       ),
@@ -891,6 +893,7 @@ class _CalcKeyState extends State<_CalcKey> {
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
+        key: Key('key-${widget.label}'),
         onTapDown: (_) => setState(() => _pressed = true),
         onTapCancel: () => setState(() => _pressed = false),
         onTapUp: (_) => setState(() => _pressed = false),
@@ -941,6 +944,7 @@ class _ActionKey extends StatelessWidget {
     return SizedBox(
       height: 56,
       child: ElevatedButton(
+        key: Key('action-$label'),
         onPressed: onTap,
         style: ElevatedButton.styleFrom(
           elevation: 0,

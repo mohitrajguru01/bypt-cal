@@ -12,9 +12,10 @@ import 'package:flutter/material.dart';
 import 'package:bypt_cal/main.dart';
 
 void main() {
-  testWidgets('App loads and shows Calculator title', (tester) async {
+  testWidgets('App loads and renders', (tester) async {
     await tester.pumpWidget(const MyApp());
     await tester.pumpAndSettle();
-    expect(find.text('Calculator'), findsOneWidget);
+    // AppBar exists and history icon is present
+    expect(find.byIcon(Icons.history_rounded), findsOneWidget);
   });
 }
