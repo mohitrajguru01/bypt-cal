@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:math_expressions/math_expressions.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Entry point of the application.
 /// Sets up global app error handling (optional) and launches the app.
@@ -81,6 +83,12 @@ class _CalculatorScreenState extends State<CalculatorScreen>
 
   String _result = '0';
   bool _showScientific = false; // Toggles scientific panel visibility
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  // History state
+  static const String _prefsHistoryKey = 'calc_history_v1';
+  List<CalcHistoryItem> _history = <CalcHistoryItem>[];
+  static const int _historyMax = 100;
 
   // Simple animation controller for reveal/hide of scientific area
   late final AnimationController _revealController = AnimationController(
@@ -115,6 +123,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
     super.initState();
     // Listen for keyboard inputs for better web/desktop UX
     // HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+    _loadHistory();
   }
 
   @override
@@ -124,6 +133,71 @@ class _CalculatorScreenState extends State<CalculatorScreen>
     _expressionController.dispose();
     _expressionFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadHistory() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final List<String> rawList = prefs.getStringList(_prefsHistoryKey) ?? <String>[];
+    final List<CalcHistoryItem> items = <CalcHistoryItem>[];
+    for (final String raw in rawList) {
+      try {
+        final Map<String, dynamic> map = jsonDecode(raw) as Map<String, dynamic>;
+        items.add(CalcHistoryItem.fromJson(map));
+      } catch (_) {}
+    }
+    setState(() {
+      _history = items;
+    });
+  }
+
+  Future<void> _saveHistory() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final List<String> rawList = _history
+        .map((e) => jsonEncode(e.toJson()))
+        .toList(growable: false);
+    await prefs.setStringList(_prefsHistoryKey, rawList);
+  }
+
+  Future<void> _appendHistory(String expression, String result) async {
+    if (result == 'Error') return;
+    final CalcHistoryItem item = CalcHistoryItem(
+      expression: expression,
+      result: result,
+      timestampMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    setState(() {
+      // Avoid consecutive duplicates
+      if (_history.isNotEmpty &&
+          _history.first.expression == item.expression &&
+          _history.first.result == item.result) {
+        _history[0] = item; // refresh timestamp
+      } else {
+        _history.insert(0, item);
+      }
+      if (_history.length > _historyMax) {
+        _history = _history.sublist(0, _historyMax);
+      }
+    });
+    await _saveHistory();
+  }
+
+  Future<void> _clearHistory() async {
+    setState(() {
+      _history.clear();
+    });
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsHistoryKey);
+  }
+
+  void _restoreFromHistory(CalcHistoryItem item) {
+    _expressionController.text = item.expression;
+    _expressionController.selection = TextSelection.fromPosition(
+      TextPosition(offset: _expressionController.text.length),
+    );
+    setState(() {
+      _result = item.result;
+    });
+    _scaffoldKey.currentState?.closeEndDrawer();
   }
 
   /// Global keyboard handler to capture digits, operators, Enter, and Backspace.
@@ -196,6 +270,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
       // Format result to avoid trailing .0 and to cap precision
       final String formatted = _formatNumber(value);
       setState(() => _result = formatted);
+      _appendHistory(raw, formatted);
     } catch (e) {
       setState(() => _result = 'Error');
     }
@@ -236,6 +311,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
       // Dismiss keyboard when tapping outside of input
       onTap: () => _expressionFocus.unfocus(),
       child: Scaffold(
+        key: _scaffoldKey,
         appBar: AppBar(
           title: Row(
             mainAxisSize: MainAxisSize.min,
@@ -257,6 +333,14 @@ class _CalculatorScreenState extends State<CalculatorScreen>
           elevation: 0,
           actions: [
             IconButton(
+              tooltip: 'History',
+              onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+              icon: Icon(
+                Icons.history_rounded,
+                color: scheme.primary,
+              ),
+            ),
+            IconButton(
               tooltip: _showScientific ? 'Hide scientific' : 'Show scientific',
               onPressed: _toggleScientific,
               icon: AnimatedRotation(
@@ -270,6 +354,8 @@ class _CalculatorScreenState extends State<CalculatorScreen>
             ),
           ],
         ),
+        endDrawer: _buildHistoryDrawer(context),
+        endDrawerEnableOpenDragGesture: true,
         body: LayoutBuilder(
           builder: (context, constraints) {
             // Adaptive layout: on wide screens, place scientific keys on the left;
@@ -374,6 +460,133 @@ class _CalculatorScreenState extends State<CalculatorScreen>
         ),
       ),
     );
+  }
+
+  Widget _buildHistoryDrawer(BuildContext context) {
+    final theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    return Drawer(
+      width: 340,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(16),
+          bottomLeft: Radius.circular(16),
+        ),
+      ),
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+              child: Row(
+                children: [
+                  Icon(Icons.history_rounded, color: scheme.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    'History',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.primary,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Clear history',
+                    onPressed: _history.isEmpty ? null : _clearHistory,
+                    icon: Icon(Icons.delete_sweep_rounded, color: scheme.primary),
+                  )
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: _history.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Text(
+                          'No history yet',
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: scheme.onSurface.withOpacity(0.6),
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.all(12),
+                      itemBuilder: (context, index) {
+                        final CalcHistoryItem item = _history[index];
+                        final DateTime dt =
+                            DateTime.fromMillisecondsSinceEpoch(item.timestampMs);
+                        final String timeLabel = _formatTimestamp(dt);
+                        return InkWell(
+                          onTap: () => _restoreFromHistory(item),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Ink(
+                            decoration: BoxDecoration(
+                              color: scheme.primary.withOpacity(0.03),
+                              border: Border.all(color: scheme.primary.withOpacity(0.08)),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  item.expression,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.right,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    color: scheme.onSurface.withOpacity(0.9),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        timeLabel,
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: scheme.onSurface.withOpacity(0.5),
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      item.result,
+                                      textAlign: TextAlign.right,
+                                      style: theme.textTheme.titleLarge?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: scheme.primary,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemCount: _history.length,
+                    ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTimestamp(DateTime dt) {
+    final now = DateTime.now();
+    final isToday = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+    final two = (int n) => n.toString().padLeft(2, '0');
+    final time = '${two(dt.hour)}:${two(dt.minute)}';
+    if (isToday) return 'Today, $time';
+    return '${two(dt.day)}/${two(dt.month)}/${dt.year}  $time';
   }
 
   /// Builds the display area with expression input and animated result.
@@ -574,6 +787,27 @@ class _CalculatorScreenState extends State<CalculatorScreen>
       },
     );
   }
+}
+
+/// History item model
+class CalcHistoryItem {
+  final String expression;
+  final String result;
+  final int timestampMs;
+
+  CalcHistoryItem({required this.expression, required this.result, required this.timestampMs});
+
+  Map<String, dynamic> toJson() => {
+        'expression': expression,
+        'result': result,
+        'ts': timestampMs,
+      };
+
+  static CalcHistoryItem fromJson(Map<String, dynamic> map) => CalcHistoryItem(
+        expression: map['expression'] as String? ?? '',
+        result: map['result'] as String? ?? '',
+        timestampMs: (map['ts'] as num?)?.toInt() ?? 0,
+      );
 }
 
 /// Compact specification for a keypad key.
