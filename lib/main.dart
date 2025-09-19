@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:math_expressions/math_expressions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -366,8 +367,9 @@ class _CalculatorScreenState extends State<CalculatorScreen>
             final Widget basicPad = _buildBasicPad(context, isWide);
             final Widget sciPad = _buildScientificPad(context);
 
+            Widget core;
             if (isWide) {
-              return Row(
+              core = Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Scientific column (always visible on wide screens)
@@ -408,53 +410,85 @@ class _CalculatorScreenState extends State<CalculatorScreen>
                   ),
                 ],
               );
+            } else {
+              // Narrow: stack display, scientific (animated), then basic pad
+              core = Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: displayArea,
+                  ),
+                  SizeTransition(
+                    sizeFactor: CurvedAnimation(
+                      parent: _revealController,
+                      curve: Curves.easeOutCubic,
+                    ),
+                    axisAlignment: -1.0,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        child: _showScientific
+                            ? Container(
+                                key: const ValueKey('sci'),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.04),
+                                      blurRadius: 18,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ],
+                                ),
+                                padding: const EdgeInsets.all(12),
+                                child: sciPad,
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: basicPad,
+                    ),
+                  ),
+                ],
+              );
             }
 
-            // Narrow: stack display, scientific (animated), then basic pad
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                  child: displayArea,
-                ),
-                SizeTransition(
-                  sizeFactor: CurvedAnimation(
-                    parent: _revealController,
-                    curve: Curves.easeOutCubic,
+            if (!kIsWeb) return core;
+
+            // Web: center inside a responsive card shell
+            final double maxWidth = isWide ? 920 : 520;
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: maxWidth,
+                    maxHeight: MediaQuery.of(context).size.height - 48,
                   ),
-                  axisAlignment: -1.0,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
-                      child: _showScientific
-                          ? Container(
-                              key: const ValueKey('sci'),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.04),
-                                    blurRadius: 18,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
-                              padding: const EdgeInsets.all(12),
-                              child: sciPad,
-                            )
-                          : const SizedBox.shrink(),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.06),
+                            blurRadius: 24,
+                            offset: const Offset(0, 12),
+                          ),
+                        ],
+                      ),
+                      child: core,
                     ),
                   ),
                 ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    child: basicPad,
-                  ),
-                ),
-              ],
+              ),
             );
           },
         ),
@@ -714,7 +748,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
               crossAxisCount: 4,
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
-              childAspectRatio: isWide ? 5 : 1,
+          childAspectRatio: isWide ? 5 : 1.0,
             ),
             itemCount: rows.expand((r) => r).length,
             itemBuilder: (context, index) {
