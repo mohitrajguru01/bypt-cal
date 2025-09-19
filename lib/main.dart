@@ -363,7 +363,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
             final bool isWide = constraints.maxWidth >= 720;
 
             final Widget displayArea = _buildDisplayArea(context);
-            final Widget basicPad = _buildBasicPad(context);
+            final Widget basicPad = _buildBasicPad(context, isWide);
             final Widget sciPad = _buildScientificPad(context);
 
             if (isWide) {
@@ -674,7 +674,7 @@ class _CalculatorScreenState extends State<CalculatorScreen>
   }
 
   /// Builds the basic calculator keypad with digits and arithmetic operators.
-  Widget _buildBasicPad(BuildContext context) {
+  Widget _buildBasicPad(BuildContext context, bool isWide) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     // Define basic keys layout
@@ -710,10 +710,11 @@ class _CalculatorScreenState extends State<CalculatorScreen>
         Expanded(
           child: GridView.builder(
             physics: const BouncingScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 4,
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
+              childAspectRatio: isWide ? 5 : 1,
             ),
             itemCount: rows.expand((r) => r).length,
             itemBuilder: (context, index) {
